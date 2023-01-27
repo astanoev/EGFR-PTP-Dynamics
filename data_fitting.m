@@ -151,7 +151,6 @@ classdef data_fitting < handle
                 % k21 = alpha_ox/(1-alpha_ox) (the formula is derived from the ODE, taking alpha_ox=PTPRGi)
                 par_min(obj.get_par_inxs('k21')) = 0.087;
                 par_max(obj.get_par_inxs('k21')) = par_min(obj.get_par_inxs('k21'));
-                par_max(obj.get_par_inxs('k3')) = 0; 
                 if j==find(strcmp(obj.conditions,'MCF7_PTPRG_KO'),1) || j==find(strcmp(obj.conditions,'MCF7_p22_KO'),1)
                     par_max(obj.get_par_inxs('b1')) = 0;
                 end
@@ -177,10 +176,8 @@ classdef data_fitting < handle
         
             for i=1:numel(obj.conditions)
                 if i>1
-                    obj.par_shared(obj.get_par_inxs('e1','e2','e3','e4','a1','a2','a3','a4','k21','k3') +(i-1)*obj.n_pars_model) = obj.get_par_inxs('e1','e2','e3','e4','a1','a2','a3','a4','k21','k3');
+                    obj.par_shared(obj.get_par_inxs('e1','e2','e3','e4','a1','a2','a3','a4','k21') +(i-1)*obj.n_pars_model) = obj.get_par_inxs('e1','e2','e3','e4','a1','a2','a3','a4','k21');
                 end
-                % link b1=b2
-                obj.par_shared(obj.get_par_inxs('b2') +(i-1)*obj.n_pars_model) = obj.get_par_inxs('b1') +(i-1)*obj.n_pars_model;
             end
             
             inxs_n2 = find(strncmp(obj.conditions,'MCF7_PTPN2',9));
