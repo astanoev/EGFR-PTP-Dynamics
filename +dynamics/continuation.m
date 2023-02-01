@@ -48,6 +48,7 @@ classdef continuation
                 obj.readout_wts = readout_wts;
             end
             warning('off','MATLAB:rankDeficientMatrix');
+            warning('off','MATLAB:singularMatrix');
             if nargin < 1
                 bif_par = 'g1'; % or 'EGF_EGFRtt';
                 bif_max_val = 3*obj.model.par.(bif_par); 
@@ -55,105 +56,125 @@ classdef continuation
                 obj.out = obj.calc_profile(bif_par, [0, bif_max_val], [0, 1], true);
             end
         end
-        
-        function sss = find_steady_states(obj, bif_par, x_minmax, y_range, sss_master, order_mode)
-            if nargin < 6; order_mode = obj.order_mode; end
-            sce = experiments.simple_convergence_experiment();
-            sce.time = [0, 1500];
-            %sce.set_up_input(x_minmax(1));
-            pars = obj.model.par;
-            ms = model_simulation(obj.model, sce);
-            
+
+        function sss = find_steady_states(obj, bif_par, x_minmax, y_range, sss_master, varargin)
+            p = inputParser;
+            addParameter(p,'order_mode',obj.order_mode);
+            addParameter(p,'k_steps',2);
+            parse(p,varargin{:});
+            k = p.Results.k_steps; % how many subsections per cube side - to explore unstable solutions
             if strcmp(bif_par,'EGF_EGFRtt')
-                init_conds = [0,1,x_minmax(1); 1-x_minmax(1),0,x_minmax(1);...
-                                0,1,x_minmax(2); 1-x_minmax(2),0,x_minmax(2)]';
+                init_conds = [x_minmax(1),0,1,x_minmax(1); x_minmax(1),1-x_minmax(1),0,x_minmax(1);...
+                                x_minmax(2),0,1,x_minmax(2); x_minmax(2),1-x_minmax(2),0,x_minmax(2)];
             else
-                init_conds = [0,1,obj.model.par.EGF_EGFRtt; 1-obj.model.par.EGF_EGFRtt,0,obj.model.par.EGF_EGFRtt;...
-                                0,1,obj.model.par.EGF_EGFRtt; 1-obj.model.par.EGF_EGFRtt,0,obj.model.par.EGF_EGFRtt]';
+                init_conds = [x_minmax(1),0,1,0; x_minmax(1),1-obj.model.par.EGF_EGFRtt,0,obj.model.par.EGF_EGFRtt;...
+                                x_minmax(2),0,1,0; x_minmax(2),1-obj.model.par.EGF_EGFRtt,0,obj.model.par.EGF_EGFRtt];
             end
-            sss = nan(size(init_conds,2), numel(obj.model.labels)+1);
-            
-            for i=1:size(init_conds,2)
-                ms.model.par.(bif_par) = x_minmax(round(i/2));
-                [~, ss0] = ms.time_profile(init_conds(:,i));
-                [status, ss0] = obj.newton([x_minmax(round(i/2)); ss0(:,end)], bif_par, 1);
-                if status == 0; sss(i,:) = ss0; end
+            m = size(init_conds,2)-1; % num variables
+            n = k^m; % use k-base system to fetch all combinations
+            sss = nan(2*n, numel(obj.model.labels)+1);
+            for i_i = 1:2
+                % loop through x_limits
+                iconds = init_conds([2*i_i-1,2*i_i],:);
+                for i=1:n
+                    % loop through combinations of fractions within the cube
+                    % implementation is through looping through numbers in base k format
+                    wgts = str2num(char(num2cell(dec2base(i-1,k,m))))./(k-1); %#ok<ST2NM> 
+                    wgts = [[.5,.5];[wgts, 1-wgts]];
+                    ss0 = sum(wgts'.*iconds,1)';
+                    [status, ss0] = obj.newton(ss0, bif_par, 1);
+                    if status == 0; sss(i+n*(i_i-1),:) = ss0; end
+                end
             end
-            obj.model.par = pars;
-            
             sss = sss(~any(isnan(sss),2), :);
             sss = uniquetol(sss, 1e-4, 'ByRows', true, 'DataScale', 1);
             if ~isempty(sss_master)
                 sss(ismember(round(sss, 4), round(sss_master, 4), 'rows'), :) = []; % remove already calculated ss
             end
             sss((sss(:,1)<x_minmax(1)-1e-5)|(sss(:,1)>x_minmax(2)+1e-5), :) = [];
-            sss((sss(:,2)<y_range(1)-1e-5)|(sss(:,2)>y_range(end)+1e-5), :) = [];
+            sss((obj.readout(sss')<y_range(1)-1e-5)|(obj.readout(sss')>y_range(end)+1e-5), :) = [];
+            % remove steady states that go out of bounds for the variables
+            sss(any(sss(:,2:end)<min(init_conds(:,2:end),[],1)-1e-5,2)|any(sss(:,2:end)>max(init_conds(:,2:end),[],1)+1e-5,2), :) = [];
 
-            if strncmpi(order_mode, 'asc', 3)
-                sss = sortrows(sss, [1, 2]);
+            [~, ind_sort] = sortrows([sss(:,1), obj.readout(sss')'], [1, 2]);
+            if strncmpi(p.Results.order_mode, 'asc', 3)                
+                sss = sss(ind_sort,:);
             else
-                sss = flipud(sortrows(sss, [2, 1]));
+                sss = sss(flipud(ind_sort),:);
             end
+            sss(abs(sss(:,1)-x_minmax(1))<1e-5,1) = x_minmax(1); % snap to min-max
+            sss(abs(sss(:,1)-x_minmax(2))<1e-5,1) = x_minmax(2);
         end
-
+        
         function [vars_cont, LP_inxs, ret_status] = calc_profile(obj, bif_par, x_minmax, y_minmax, animate)
             if nargin < 5; animate = false; end
             vars_cont = {};
             LP_inxs = {};
             ret_status = 0;
             sss_master = zeros(0, numel(obj.model.labels)+1);
-            %pt_res = 0.002;
-            %y_range_master = y_minmax(1):pt_res:(2*y_minmax(2));
-            pt_res = 0.02;
-            y_range_master = y_minmax(1):pt_res:y_minmax(2);
-            y_range_iteration = y_range_master;
-            while pt_res > 1e-5
-                sss = obj.find_steady_states(bif_par, x_minmax, y_range_iteration, sss_master);
-                processed = zeros(size(sss,1), 1);
-                i = 1; % i = 2; %for debugging continuation
+            k_steps = 3;
+            while k_steps < 10
+                % detect steady states for a given k_steps value 
+                % (k_steps value per variable - k_steps x k_steps x k_steps variable sets to use as initial conditions for a newton step, 
+                % to find a steady state solution)
+                sss = obj.find_steady_states(bif_par, x_minmax, y_minmax, sss_master, 'k_steps', k_steps);
+                processed = zeros(size(sss,1), 1); % vector od processed sss
+                problematic = zeros(size(sss,1), 1); % vector of problematic sss (detected ss, but not able to continue from them)
+                ind_ss = 1; % current ss that is being processed
                 while ~all(processed)
-                    if processed(i)
-                        for j = mod(i:(size(sss, 1)+i-2), size(sss,1))+1
+                    if processed(ind_ss)
+                        % if ss(ind_ss) is already processed, find an unprocessed one
+                        for j = mod(ind_ss:(size(sss, 1)+ind_ss-2), size(sss,1))+1
                             if ~processed(j)
-                                i = j;
+                                ind_ss = j;
                                 break;
                             end
                         end
                     end
-                    ss = sss(i, :);
-                    processed(i) = 1;
+                    ss = sss(ind_ss, :);
+                    processed(ind_ss) = 1; % mark as processed ss
+                    % set of unprocessed sss - potential endpoints of the continuation algorithm
                     sss_finals = sss(~processed, :);
                     if ss(1) == x_minmax(1)
+                        % if starting from left x-limit, move forward, otherwise move backwards
                         t0 = [1; 0; 0; 0];
                     else
                         t0 = [-1; 0; 0; 0];
                     end
                     x0_minmax = [x_minmax', repmat([0;1],1,3)];
+                    % main continuation execution from a given starting point ss' and initial direction t0
                     [vars_cont_single, LP_inxs_single, ret_status_single, animate] = obj.continuation_single(bif_par, ss', sss_finals, x0_minmax, t0, animate);
-                    if isempty(vars_cont_single)
+                    if isempty(vars_cont_single) || ret_status_single>0
+                        % if there is no possible continuation from the given starting ss
+                        % (rare case, but possible when there is limit stability)
+                        problematic(ind_ss) = 1;
                         continue;
                     end
                     ss_final = vars_cont_single(:, end);
-                    match = false;
+                    exists_as_ss = false;
                     for j = 1:size(sss, 1)
                         if processed(j); continue; end
-                        if match %&& ~processed(j)
-                            i = j;
+                        if exists_as_ss
+                            % select the next ss for processing
+                            ind_ss = j;
                             break;
                         elseif norm(ss_final - sss(j, :)') < 2e-4
+                            % if the final state exists as ss in the sss dataset
                             processed(j) = 1;
-                            match = true;
-                            continue;
+                            exists_as_ss = true;
+                            continue; % continue to select the next candidate
                         end
                     end
-                    if ~match
+                    if ~exists_as_ss
+                        % if not detected previously, add as a new ss in the sss set
                         sss = [sss; ss_final']; %#ok<AGROW>
                         processed = [processed; 1]; %#ok<AGROW>
+                        problematic = [problematic; 0]; %#ok<AGROW>
                         if ~all(processed)
-                            i = find(~processed, 1);
+                            ind_ss = find(~processed, 1);
                         end
                     end
-                    if ss(1) == x_minmax(2)
+                    if ss(1) == x_minmax(2) && abs(ss_final(1)-x_minmax(2))>1e-5
                         % if started from the end, flip everything
                         vars_cont_single = fliplr(vars_cont_single);
                         LP_inxs_single = fliplr(size(vars_cont_single,2)-LP_inxs_single+1);
@@ -162,12 +183,10 @@ classdef continuation
                     LP_inxs{1, end+1} = LP_inxs_single; %#ok<AGROW>
                     ret_status = ret_status | ret_status_single;
                 end
-                sss_master = [sss_master; sss]; %#ok<AGROW>
+                sss_master = [sss_master; sss(~problematic, :)]; %#ok<AGROW>
                 if ((mod(length(find(abs(sss_master(:, 1) -x_minmax(1))<1e-5)), 2) ~= 1) || (mod(length(find(abs(sss_master(:, 1) -x_minmax(2))<1e-5)), 2) ~= 1))
-                    pt_res = pt_res/2; % halve step
-                    y_range_iteration = y_range_master + pt_res; % shift range for half step
-                    y_range_master = [y_range_master; y_range_iteration]; %#ok<AGROW> % add new range to previous
-                    y_range_master = y_range_master(:)';
+                    % if there are undetected steady states, decrease the step size
+                    k_steps = k_steps+1;
                 else
                     % sort and link lists
                     try
@@ -184,7 +203,7 @@ classdef continuation
             %model_problem = obj.model;
             %save('data\temp\problem_model.mat','model_problem');
         end
-        
+
         function [vars_cont, LP_inxs, ret_status, ax] = continuation_single(obj, bif_par, x0, xfinals, x0_minmax, t0, animate)
             if nargin < 2
                 x0 = [0; 2];
@@ -219,7 +238,7 @@ classdef continuation
             h = 0.005; % starting step size
             hmax = 0.02; % maximal step size
             hmin = 0.0005; % minimal step size
-            step_max = 3000; % maximal number of steps (can change to inf)
+            step_max = 30000; % maximal number of steps (can change to inf)
             step_num = 1; 
             vars_cont = zeros(numel(x0), step_max); % save solutions
             LP_inxs = []; % save limit points
@@ -283,8 +302,13 @@ classdef continuation
                         else % if solution is found
                             if step_num == 2 && obj.out_of_bounds(x2, x0_minmax)
                                 % if initial move is out of bounds, reduce step
-                                p0 = mod(p0,numel(x0))+1;
-                                j = j+1;
+                                if hh >= hmin
+                                    hh = hh/2;
+                                else
+                                    hh = h;
+                                    p0 = mod(p0,numel(x0))+1;
+                                    j = j+1;
+                                end
                                 status = 1;
                                 continue;
                             end
@@ -324,6 +348,11 @@ classdef continuation
                     if found_solution
                         break;
                     end
+                    if step_num == 2
+                        % if no solution is found from the start - abort
+                        ret_status = 1;
+                        return;
+                    end
                     hh = hh/2; % halve step size
                 end
                 hh = max(hh, hmin);
@@ -332,6 +361,7 @@ classdef continuation
                 % unreliable tangent direction) do brute-force direction
                 % search
                 if status ~= 0
+                    %return;
                     % disp(strcat('exhaustive search mode at: ',num2str(x0(1)),', ',num2str(x0(2))));
                     n_angles = 35; % 35 angles (10deg)
                     hh = hmin; % very small step size
@@ -527,69 +557,76 @@ classdef continuation
             s_max = max(end_points(:, 1));
             s_min_inxs = find(abs(end_points(:, 1) -s_min)<1e-5);
             s_max_inxs = find(abs(end_points(:, 1) -s_max)<1e-5);
-            if strcmp(order_mode, 'desc')
-                [~, ind1] = max(end_points(s_min_inxs, 2));
-                [~, ind2] = max(end_points(s_max_inxs, 2));
-            else
-                [~, ind1] = min(end_points(s_min_inxs, 2));
-                [~, ind2] = min(end_points(s_max_inxs, 2));
-            end
-            % denote starting and ending nodes in the graph
-            ind_start = s_min_inxs(ind1);
-            ind_end = s_max_inxs(ind2);
+            [~, inxs_1_order] = sort(end_points(s_min_inxs, 2), order_mode);
+            %[~, inxs_2_order] = sort(end_points(s_min_inxs, 2), order_mode);
             
-            q = {[ind_start]}; %#ok<NBRAK>
-            solutions = [];
-            
-            while ~isempty(q)
-                curr_node_list = q{1};
-                q = q(1, 2:end);
-                if isempty(curr_node_list)
-                    break;
-                end
-                if (length(curr_node_list) == size(graph, 1))
-                    % check if viable - path do not cross
-                    no_sol = false;
-                    for i = 1:(length(curr_node_list)-1)
-                        if graph(curr_node_list(i), curr_node_list(i+1)) == 0
-                            for j = (i+2):(length(curr_node_list)-1)
-                                if (graph(curr_node_list(j), curr_node_list(j+1)) == 0) && (end_points(curr_node_list(i), 1) == end_points(curr_node_list(j), 1))
-                                    if mod(sum(all([min(end_points(curr_node_list([i,i+1]), 2)) < end_points(curr_node_list([j,j+1]), 2), max(end_points(curr_node_list([i,i+1]), 2)) > end_points(curr_node_list([j,j+1]), 2)], 2)),2)
-                                        no_sol = true;
-                                        break;
-                                    end
+            for i_o = 1:numel(inxs_1_order)
+                % denote starting and ending nodes in the graph
+                ind_start = s_min_inxs(inxs_1_order(i_o));
+                %ind_end = s_max_inxs(ind2);
+                
+                q = {[ind_start]}; %#ok<NBRAK>
+                solutions = [];
+                
+                while ~isempty(q)
+                    curr_node_list = q{1};
+                    q = q(1, 2:end);
+                    if isempty(curr_node_list)
+                        break;
+                    end
+                    if (length(curr_node_list) == size(graph, 1))
+                        % check if viable - paths do not cross
+                        no_sol = false;
+                        pos_pairs = end_points([curr_node_list(1:2:end),curr_node_list(end)],1);
+                        virt_pairs = reshape([-inf,end_points(curr_node_list,2)',inf],2,[])';
+                        for i = 2:size(virt_pairs,1)
+                            for j = 1:(i-1)
+                                if pos_pairs(i)~=pos_pairs(j); continue; end
+                                if mod(sum(virt_pairs(i,:)'>virt_pairs(j,:),'all'),2)==1
+                                    % if the paths are crossing (virt_pairs positions are intercrossing) - not viable
+                                    no_sol = true;
+                                    break;
                                 end
                             end
                             if no_sol; break; end
                         end
+                        if ~no_sol
+                            solutions = [solutions; curr_node_list]; %#ok<AGROW>
+                        end
+                        continue;
                     end
-                    if ~no_sol
-                        solutions = [solutions; curr_node_list]; %#ok<AGROW>
-                    end
-                    continue;
-                end
-                next_id = setdiff(find(graph(curr_node_list(end), :)), curr_node_list);
-                if isempty(next_id)
-                    if ismember(curr_node_list(end), s_min_inxs)
-                        next_ids = setdiff(s_min_inxs(sum(abs(graph(s_min_inxs, :)),2)<2), curr_node_list);
+                    next_id = setdiff(find(graph(curr_node_list(end), :)), curr_node_list);
+                    if isempty(next_id)
+                        if ismember(curr_node_list(end), s_min_inxs)
+                            next_ids = setdiff(s_min_inxs(sum(abs(graph(s_min_inxs, :)),2)<2), curr_node_list);
+                        else
+                            next_ids = setdiff(s_max_inxs(sum(abs(graph(s_max_inxs, :)),2)<2), curr_node_list);
+                        end
+                        if numel(next_ids)>1
+                            [~,ind_sort] = sort(pdist2(end_points(curr_node_list(end),:),end_points(next_ids,:)));
+                            next_ids = next_ids(ind_sort);
+                        end
+                        for i = 1:length(next_ids)
+                            next_node_list = [curr_node_list, next_ids(i)];
+                            q{1, end+1} = next_node_list; %#ok<AGROW>
+                        end
                     else
-                        next_ids = setdiff(s_max_inxs(sum(abs(graph(s_max_inxs, :)),2)<2), curr_node_list);
-                    end
-                    if numel(next_ids)>1
-                        [~,ind_sort] = sort(pdist2(end_points(curr_node_list(end),:),end_points(next_ids,:)));
-                        next_ids = next_ids(ind_sort);
-                    end
-                    for i = 1:length(next_ids)
-                        next_node_list = [curr_node_list, next_ids(i)];
+                        next_node_list = [curr_node_list, next_id];
                         q{1, end+1} = next_node_list; %#ok<AGROW>
                     end
-                else
-                    next_node_list = [curr_node_list, next_id];
-                    q{1, end+1} = next_node_list; %#ok<AGROW>
+                end
+                if ~isempty(solutions)
+                    break;
                 end
             end
-            order = ceil(solutions(1, 1:2:end)/2);
-            flip = mod(solutions(1, 1:2:end),2)==0;
+            vars_cont_ret = [];
+            LP_inxs_ret = [];
+            if isempty(solutions)
+                disp('problem linking');
+                return;
+            end
+            order = ceil(solutions(1, 1:2:end)/2); % ceil(indices/2) gives the vars_cont index
+            flip = mod(solutions(1, 1:2:end),2)==0; % odd positions should have odd indices, otherwise flip direction within vars_cont
             for i = 1:length(flip)
                 if flip(i)
                     vars_cont{order(i)} = fliplr(vars_cont{order(i)});
@@ -598,8 +635,6 @@ classdef continuation
             end
             vars_cont = vars_cont(order);
             LP_inxs = LP_inxs(order);
-            vars_cont_ret = [];
-            LP_inxs_ret = [];
             for i = 1:length(vars_cont)
                 if isempty(vars_cont_ret)
                     LP_inxs_ret = LP_inxs{i};
@@ -610,7 +645,7 @@ classdef continuation
                 end
             end
         end
-        
+
         function [x3] = binary_search(obj, n, x1, x2, t1, t2, bif_par, x0_minmax)
             ro = t2(1)/(t2(1)-t1(1)); % weigh closer to the point whose fp is closer to zero
             [status, x3] = obj.newton(x1*ro+x2*(1-ro), bif_par, 2);
@@ -670,7 +705,7 @@ classdef continuation
                 fpx = obj.model.fp_continuation(x, bif_par);
                 fpx(end+1, :) = 0.0; %#ok<AGROW>
                 fpx(end, p) = 1.0;
-                if (any(isnan(fpx(:)))) || any(imag(fpx(:))~=0) % if singular matrix as fpx(1) approaches zero (limit point)
+                if (any(isnan(fpx(:)))) || any(imag(fpx(:))~=0) || rank(fpx) < size(fpx,1) % if singular matrix as fpx(1) approaches zero (limit point)
                     status = 2;
                     return;
                 end
@@ -686,6 +721,11 @@ classdef continuation
         
         function [status, x2, t2, p2] = step(obj, x0, t0, bif_par, p0, h, x0_minmax)
             [t2, p2] = obj.tangent(x0, t0, bif_par, p0);
+
+            if any(isnan(t2))
+                status = 2; x2 = nan(size(x0));
+                return;
+            end
 
             x1 = x0 + h * t2;
 
@@ -724,7 +764,7 @@ classdef continuation
 
         function ret = readout(obj, x)
             % calculate readout - typically sum of some of the variables
-            ret = sum(obj.readout_wts.*x(2:end,:));
+            ret = sum(obj.readout_wts'*x(2:end,:),1);
         end    
     end
 
