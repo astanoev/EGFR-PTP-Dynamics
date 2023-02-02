@@ -225,35 +225,38 @@ classdef data_fitting < handle
             fn = fieldnames(model.par);
             y_est = nan(size(x_data));
             for j=1:size(x_data,2)
-                for i=1:length(fn)
-                    j_shift = (j-1)*length(fn); % copy first par(i) value if linked
-                    model.par.(fn{i}) = par(i+j_shift);
-                end
-                x_data_j = x_data(:,j);
-                x_data_j = x_data_j(~isnan(x_data_j));
-                [xx, ~, xx_ind] = unique(x_data_j);
-                ct = dynamics.continuation(model);
-                [vars_cont, LP_inxs, ret_status] = ct.calc_profile('EGF_EGFRtt', [0, 1], [0, 1]);
-                if ret_status ~= 0
-                    yy = dynamics.dose_response(model,0).dose_response_input_cont(xx);
+                model.set_params(par((1:length(fn))+(j-1)*length(fn)));
+                y_est_j = data_fitting.calc_est_single(model, x_data(:,j));
+                y_est(1:numel(y_est_j),j) = y_est_j;
+            end
+        end
+
+        function [y_ret, rmse] = dose_response_est_single(model, x_data, y_data)
+            x_data_nn = x_data(~isnan(x_data));
+            [xx, ~, xx_ind] = unique(x_data_nn);
+            ct = dynamics.continuation(model);
+            [vars_cont, LP_inxs, ret_status] = ct.calc_profile('EGF_EGFRtt', [0, 1], [0, 1]);
+            x = vars_cont(1,:);
+            y = ct.readout(vars_cont);
+            if ~isempty(LP_inxs)
+                ind_1 = min(LP_inxs);
+                if length(LP_inxs) == 2
+                    ind_2 = max(LP_inxs);
                 else
-                    x = vars_cont(1,:);
-                    y = ct.readout(vars_cont);
-                    if ~isempty(LP_inxs)
-                        ind_1 = min(LP_inxs);
-                        if length(LP_inxs) == 2
-                            ind_2 = max(LP_inxs);
-                        else
-                            ind_2 = find(isnan(x),1,'last')+1;
-                        end
-                        ind_21 = find(x(ind_2:end)>x(ind_1),1,'first') + ind_2 -1;
-                        y_21 = interp1(x(ind_2:end), y(ind_2:end), x(ind_1)+1e-10, 'PCHIP', nan);
-                        yy = interp1([x(1:ind_1),x(ind_1)+1e-10,x(ind_21:end)], [y(1:ind_1),y_21,y(ind_21:end)], xx, 'PCHIP', nan);
-                    else
-                        yy = interp1(x, y, xx, 'PCHIP', nan);
-                    end
+                    ind_2 = find(isnan(x),1,'last')+1;
                 end
-                y_est(1:numel(xx_ind),j) = yy(xx_ind);
+                ind_21 = find(x(ind_2:end)>x(ind_1),1,'first') + ind_2 -1;
+                y_21 = interp1(x(ind_2:end), y(ind_2:end), x(ind_1)+1e-10, 'PCHIP', nan);
+                yy = interp1([x(1:ind_1),x(ind_1)+1e-10,x(ind_21:end)], [y(1:ind_1),y_21,y(ind_21:end)], xx, 'PCHIP', nan);
+            else
+                yy = interp1(x, y, xx, 'PCHIP', nan);
+            end
+            y_ret = nan(size(x_data));
+            y_ret(~isnan(x_data)) = yy(xx_ind);
+            rmse = nan;
+            if nargin>2
+                y_data_nn = y_data(~isnan(x_data));
+                rmse = sqrt(sum((y_data_nn -yy(xx_ind)).^2)/numel(~isnan(x_data)));
             end
         end
 

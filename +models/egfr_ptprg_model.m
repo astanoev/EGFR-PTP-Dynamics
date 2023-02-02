@@ -28,44 +28,45 @@ classdef egfr_ptprg_model < handle
             end
         end
         
-        function f = f_continuation(obj, x, bif_par)
+        function f = f_continuation(obj, state, bif_par)
             pars = obj.par;
             if nargin < 3
-                EGF_EGFRtt = x(1,:);
+                EGF_EGFRtt = state(1,:);
             elseif strcmp(bif_par,'EGF_EGFRtt')
-                EGF_EGFRtt = x(1,:);
+                EGF_EGFRtt = state(1,:);
             else
                 EGF_EGFRtt = obj.par.EGF_EGFRtt;
-                pars.(bif_par) = x(1,:);
+                pars.(bif_par) = state(1,:);
             end
-            EGFRpt = x(2,:);
+            EGFRpt = state(2,:);
             EGFRnpt = 1 -EGFRpt -EGF_EGFRtt;
-            PTPRGat = x(3,:);
+            PTPRGat = state(3,:);
             PTPRGit = 1 -PTPRGat;
-            EGF_EGFRpt = x(4,:);
+            EGF_EGFRpt = state(4,:);
             EGF_EGFRnpt = EGF_EGFRtt -EGF_EGFRpt;
 
-            f = zeros(numel(x)-1,1);
+            f = zeros(numel(state)-1,1);
             f(1,:) = EGFRnpt*(pars.e1*EGFRnpt +pars.e2*EGF_EGFRnpt +pars.a1*EGFRpt +pars.a2*EGF_EGFRpt) -pars.g1*PTPRGat*EGFRpt -pars.g2*EGFRpt; %EGFRpt
             f(2,:) = PTPRGit -pars.k21*PTPRGat -pars.b1*(EGFRpt +EGF_EGFRpt)*PTPRGat; %PTPRGat
             f(3,:) = EGF_EGFRnpt*(pars.e3*EGFRnpt +pars.e4*EGF_EGFRnpt +pars.a3*EGFRpt +pars.a4*EGF_EGFRpt) -pars.g3*PTPRGat*EGF_EGFRpt -pars.g4*EGF_EGFRpt; %EGF_EGFRpt
         end
 
-        function fp = fp_continuation(obj, x, bif_par)
+        function fp = fp_continuation(obj, state, bif_par)
             pars = obj.par;
             if nargin < 3
-                EGF_EGFRtt = x(1,:);
+                bif_par = 'EGF_EGFRtt';
+                EGF_EGFRtt = state(1,:);
             elseif strcmp(bif_par,'EGF_EGFRtt')
-                EGF_EGFRtt = x(1,:);
+                EGF_EGFRtt = state(1,:);
             else
                 EGF_EGFRtt = obj.par.EGF_EGFRtt;
-                pars.(bif_par) = x(1,:);
+                pars.(bif_par) = state(1,:);
             end
-            EGFRpt = x(2,:);
+            EGFRpt = state(2,:);
             EGFRnpt = 1 -EGFRpt -EGF_EGFRtt;
-            PTPRGat = x(3,:);
+            PTPRGat = state(3,:);
             PTPRGit = 1 -PTPRGat;
-            EGF_EGFRpt = x(4,:);
+            EGF_EGFRpt = state(4,:);
             EGF_EGFRnpt = EGF_EGFRtt -EGF_EGFRpt;
             dEGF_EGFRtt = [1, 0, 0, 0];
             dEGFRpt = [0, 1, 0, 0];
@@ -74,7 +75,7 @@ classdef egfr_ptprg_model < handle
             dPTPRGit = [0, 0, -1, 0];
             dEGF_EGFRpt = [0, 0, 0, 1];
             dEGF_EGFRnpt = [1, 0, 0, -1];
-            fp = zeros(numel(x)-1,numel(x));
+            fp = zeros(numel(state)-1,numel(state));
             fp(1,:) = dEGFRnpt.*(pars.e1*EGFRnpt +pars.e2*EGF_EGFRnpt +pars.a1*EGFRpt +pars.a2*EGF_EGFRpt) +EGFRnpt.*(pars.e1*dEGFRnpt +pars.e2*dEGF_EGFRnpt +pars.a1*dEGFRpt +pars.a2*dEGF_EGFRpt) -pars.g1*(dPTPRGat.*EGFRpt +PTPRGat*dEGFRpt) -pars.g2*dEGFRpt;
             fp(2,:) = dPTPRGit -pars.k21*dPTPRGat -pars.b1.*(dEGFRpt +dEGF_EGFRpt).*PTPRGat -pars.b1*(EGFRpt +EGF_EGFRpt).*dPTPRGat;
             fp(3,:) = dEGF_EGFRnpt*(pars.e3*EGFRnpt +pars.e4*EGF_EGFRnpt +pars.a3*EGFRpt +pars.a4*EGF_EGFRpt) +EGF_EGFRnpt*(pars.e3*dEGFRnpt +pars.e4*dEGF_EGFRnpt +pars.a3*dEGFRpt +pars.a4*dEGF_EGFRpt) -pars.g3*(dPTPRGat*EGF_EGFRpt +PTPRGat*dEGF_EGFRpt) -pars.g4*dEGF_EGFRpt;
@@ -91,25 +92,37 @@ classdef egfr_ptprg_model < handle
             end
         end
 
-        function [dydt] = df_model(obj, t, y, experiment)
+        function [J, stable] = jacobian(obj, state)
+            fp = obj.fp_continuation(state);
+            J = fp(:,2:end);
+            if any(isinf(J(:)))
+                stable = 0;
+            elseif issparse(J)
+                stable = all(real(eigs(J))<=0);
+            else
+                stable = all(real(eig(J))<=0);
+            end
+        end
+
+        function [dstate_dt] = df_model(obj, time, state, experiment)
             try
-                EGF_EGFRtt = experiment.get_input(t);
+                EGF_EGFRtt = experiment.get_input(time);
             catch ex
                 EGF_EGFRtt = obj.par.EGF_EGFRtt;
             end
             if isempty(EGF_EGFRtt); EGF_EGFRtt = obj.par.EGF_EGFRtt; end
             
-            dydt = zeros(size(y));
-            EGFRpt = y(1);                        
-            PTPRGat = y(2);
-            EGF_EGFRpt = y(3);
+            dstate_dt = zeros(size(state));
+            EGFRpt = state(1);                        
+            PTPRGat = state(2);
+            EGF_EGFRpt = state(3);
             PTPRGit = 1 -PTPRGat;
             EGFRnpt = 1 -EGFRpt -EGF_EGFRtt;
             EGF_EGFRnpt = EGF_EGFRtt -EGF_EGFRpt;
             
-            dydt(1) = obj.par_kin.EGFRt*(EGFRnpt*(obj.par.e1*EGFRnpt +obj.par.e2*EGF_EGFRnpt +obj.par.a1*EGFRpt +obj.par.a2*EGF_EGFRpt) -obj.par.g1*PTPRGat*EGFRpt -obj.par.g2*EGFRpt); %EGFRpt
-            dydt(2) = obj.par_kin.k1*(PTPRGit -obj.par.k21*PTPRGat -obj.par.b1*(EGFRpt +EGF_EGFRpt)*PTPRGat); %PTPRGat
-            dydt(3) = obj.par_kin.EGFRt*(EGF_EGFRnpt*(obj.par.e3*EGFRnpt +obj.par.e4*EGF_EGFRnpt +obj.par.a3*EGFRpt +obj.par.a4*EGF_EGFRpt) -obj.par.g3*PTPRGat*EGF_EGFRpt -obj.par.g4*EGF_EGFRpt); %EGF_EGFRpt
+            dstate_dt(1) = obj.par_kin.EGFRt*(EGFRnpt*(obj.par.e1*EGFRnpt +obj.par.e2*EGF_EGFRnpt +obj.par.a1*EGFRpt +obj.par.a2*EGF_EGFRpt) -obj.par.g1*PTPRGat*EGFRpt -obj.par.g2*EGFRpt); %EGFRpt
+            dstate_dt(2) = obj.par_kin.k1*(PTPRGit -obj.par.k21*PTPRGat -obj.par.b1*(EGFRpt +EGF_EGFRpt)*PTPRGat); %PTPRGat
+            dstate_dt(3) = obj.par_kin.EGFRt*(EGF_EGFRnpt*(obj.par.e3*EGFRnpt +obj.par.e4*EGF_EGFRnpt +obj.par.a3*EGFRpt +obj.par.a4*EGF_EGFRpt) -obj.par.g3*PTPRGat*EGF_EGFRpt -obj.par.g4*EGF_EGFRpt); %EGF_EGFRpt
         end
     end
 end

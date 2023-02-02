@@ -37,3 +37,19 @@ model = models.egfr_ptprg_model;
 cn = dynamics.continuation(model);
 cn.calc_profile('g1',[0,1],[0,1],true);
 ```
+
+Another more graphical way of probing the model capabilities and performing parameter estimation using the experimental data is by running the Bifurcation analysis GUI, which is our bifurcation analysis playground. The GUI is developed using the Matlab App Designer, and can be ran on more recent versions of Matlab (≥ R2018b) If only a model testing is desired, one can simply run the GUI either without parameters (in which case the predefined model will be used), or supplied with a model, and additionally a parameter set can be included as well:
+
+```matlab
+apps.app_bif('model',model);
+```
+
+The lower panel contains controls for changing the ranges and values for each parameter. Clicking on the controls will select the corresponding parameter as a bifurcation parameter. The bifurcation diagram is shown in the upper panel.
+
+More interesting analysis can be done using the experimental datasets, that contain the dose-response experiments. The datasets and the respective estimated parameter sets can be loaded in a data_fitting object as before, which can then be supplied as an input argument to the GUI:
+
+```matlab
+apps.app_bif('data_fit',df);
+```
+
+In this case the datasets and parameter sets can be selected from the upper-right drop-down list, and the dose-response data will be overlaid with the bifurcation profile when the EGF_EGFRtt is selected as a bifurcation parameter. The loss function (RMSE in this case) is also calculated, and can be used to optimize each parameter individually.

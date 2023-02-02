@@ -235,7 +235,7 @@ classdef continuation
             tol = 6*1e-5;%1e-04;
             tol1 = 0.7*tol; % if error lower than tol1, increase step size
             tol2 = 0.8*tol; % if error higher than tol, decrease step size
-            h = 0.005; % starting step size
+            h = 0.015; % starting step size
             hmax = 0.02; % maximal step size
             hmin = 0.0005; % minimal step size
             step_max = 30000; % maximal number of steps (can change to inf)
