@@ -118,9 +118,9 @@ function xmax = plot_bif(par_fit, model, ax2, ax3)
     model.set_params(par_fit);
     model.par.EGF_EGFRtt = 0;
     ct = dynamics.continuation(model);
-    vars_cont = ct.calc_profile('g1', [0, 10], [0, 1]);
-    g1 = vars_cont(1,:);
-    Epp = ct.readout(vars_cont);
+    prof_bif = ct.calc_profile('g1', [0, 10], [0, 1]);
+    g1 = prof_bif.vars_cont(1,:);
+    Epp = ct.readout(prof_bif.vars_cont);
     p1 = plot(ax3, g1, Epp, '-', 'linewidth', 2);
     ind = find(g1<=model.par.g1,1,'last');
     g1_fr = (model.par.g1-g1(ind))/(g1(ind+1)-g1(ind));
@@ -159,9 +159,9 @@ function plot_3d_bif(par_fit, model, ax, g1_max)
     for i=1:numel(EEts)
         EEt = EEts(i);
         model.par.EGF_EGFRtt = EEt;
-        vars_cont = ct.calc_profile('g1', [0, g1_max], [0, 1]);
-        g1 = vars_cont(1,:);
-        Epp = ct.readout(vars_cont);
+        prof_bif = ct.calc_profile('g1', [0, g1_max], [0, 1]);
+        g1 = prof_bif.vars_cont(1,:);
+        Epp = ct.readout(prof_bif.vars_cont);
         if i==1
             xmax = max([model.par.g1, max(g1(Epp>0.03))*2]);
             n_samples = 1000; %round(g1_max/xmax*pts_visible); % set n_samples to stretch to g1_max with frequency so as to match the number of visible pts within xmax
@@ -200,16 +200,16 @@ function y_est = dose_response_est(par, x_data, varargin)
     model.set_params(par);
     [xx, ~, xx_ind] = unique(x_data);
     ct = dynamics.continuation(model);
-    [vars_cont, LP_inxs, ret_status] = ct.calc_profile('EGF_EGFRtt', [0, 1], [0, 1]);
+    prof_bif = ct.calc_profile('EGF_EGFRtt', [0, 1], [0, 1]);
     if ret_status ~= 0
         yy = dynamics.dose_response(model,0).dose_response_input_cont(xx);
     else
-        x = vars_cont(1,:);
-        y = ct.readout(vars_cont);
-        if ~isempty(LP_inxs)
-            ind_1 = min(LP_inxs);
-            if length(LP_inxs) == 2
-                ind_2 = max(LP_inxs);
+        x = prof_bif.vars_cont(1,:);
+        y = ct.readout(prof_bif.vars_cont);
+        if ~isempty(prof_bif.LP_inxs)
+            ind_1 = min(prof_bif.LP_inxs);
+            if length(prof_bif.LP_inxs) == 2
+                ind_2 = max(prof_bif.LP_inxs);
             else
                 ind_2 = find(isnan(x),1,'last')+1;
             end
@@ -247,30 +247,30 @@ function export_data(par_master, model, conditions)
         end
 
         ct = dynamics.continuation(model);
-        [vars_cont, LP_inxs, ret_status] = ct.calc_profile('EGF_EGFRtt', [0, 1], [0, 1]);
-        if ret_status ~= 0
+        prof_bif = ct.calc_profile('EGF_EGFRtt', [0, 1], [0, 1]);
+        if prof_bif.ret_status ~= 0
             disp('ret_status ~= 0');
             return;
         end
-        x = vars_cont(1,:);
-        if ~isempty(LP_inxs)
-            ind_1 = min(LP_inxs); % first LP
-            if length(LP_inxs) == 2
-                ind_2 = max(LP_inxs); % last LP
+        x = prof_bif.vars_cont(1,:);
+        if ~isempty(prof_bif.LP_inxs)
+            ind_1 = min(prof_bif.LP_inxs); % first LP
+            if length(prof_bif.LP_inxs) == 2
+                ind_2 = max(prof_bif.LP_inxs); % last LP
             else
                 ind_2 = find(isnan(x),1,'last')+1;
             end
             ind_21 = find(x(ind_2:end)>=x(ind_1),1,'first') + ind_2 -1; % find first point on the upper branch, right from the first LP
-            vars_dr = zeros(size(vars_cont,1), ind_1+2+size(vars_cont,2)-ind_21+1);
-            for k = 1:size(vars_cont, 1)
-                vk = interp1(x(ind_2:end), vars_cont(k,ind_2:end), x(ind_1), 'PCHIP', nan);
-                vars_dr(k,:) = [vars_cont(k,1:ind_1), nan, vk, vars_cont(k,ind_21:end)];
+            vars_dr = zeros(size(prof_bif.vars_cont,1), ind_1+2+size(prof_bif.vars_cont,2)-ind_21+1);
+            for k = 1:size(prof_bif.vars_cont, 1)
+                vk = interp1(x(ind_2:end), prof_bif.vars_cont(k,ind_2:end), x(ind_1), 'PCHIP', nan);
+                vars_dr(k,:) = [prof_bif.vars_cont(k,1:ind_1), nan, vk, prof_bif.vars_cont(k,ind_21:end)];
             end
         else
-            vars_dr = vars_cont;
+            vars_dr = prof_bif.vars_cont;
         end
-        vars_cont((end+1):(end+4),:) = [1-vars_cont(1,:)-vars_cont(2,:); 1-vars_cont(3,:); vars_cont(1,:)-vars_cont(4,:); vars_cont(2,:)+vars_cont(4,:)];
-        T = array2table(vars_cont','VariableNames',{'alpha_L','EGFRpt','PTPRGat','EGF_EGFRpt','EGFRnpt','PTPRGit','EGF_EGFRnpt','alpha_P'});
+        prof_bif.vars_cont((end+1):(end+4),:) = [1-prof_bif.vars_cont(1,:)-prof_bif.vars_cont(2,:); 1-prof_bif.vars_cont(3,:); prof_bif.vars_cont(1,:)-prof_bif.vars_cont(4,:); prof_bif.vars_cont(2,:)+prof_bif.vars_cont(4,:)];
+        T = array2table(prof_bif.vars_cont','VariableNames',{'alpha_L','EGFRpt','PTPRGat','EGF_EGFRpt','EGFRnpt','PTPRGit','EGF_EGFRnpt','alpha_P'});
         writetable(T,filename_cont,'Sheet',conditions{j},'WriteVariableNames',true);
 
         vars_dr((end+1):(end+4),:) = [1-vars_dr(1,:)-vars_dr(2,:); 1-vars_dr(3,:); vars_dr(1,:)-vars_dr(4,:); vars_dr(2,:)+vars_dr(4,:)];

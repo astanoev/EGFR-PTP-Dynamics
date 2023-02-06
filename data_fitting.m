@@ -82,6 +82,9 @@ classdef data_fitting < handle
                     xx = interp1(doses_wt,EGF_EGFR_wt_mean,doses);
                     xx = repmat(xx, 1, size(alpha,2))'; xx = xx(:);
                     yy = alpha'; yy = yy(:);
+                    ind_nan = isnan(xx) | isnan(yy);
+                    yy(ind_nan) = [];
+                    xx(ind_nan) = [];
                 else
                     exclude = [];
                     flb = nan(size(EGF_EGFR)); % fraction of ligand-bound
@@ -108,8 +111,9 @@ classdef data_fitting < handle
                     % collect data points (flb-alpha pairs) from all of the cells
                     xx = flb(:);
                     yy = alpha(:);
-                    yy(isnan(xx)) = [];
-                    xx(isnan(xx)) = [];
+                    ind_nan = isnan(xx) | isnan(yy);
+                    yy(ind_nan) = [];
+                    xx(ind_nan) = [];
                     % sort the points according to x-value
                     [xx, xx_inxs] = sort(xx);
                     yy = yy(xx_inxs);
@@ -226,28 +230,28 @@ classdef data_fitting < handle
             y_est = nan(size(x_data));
             for j=1:size(x_data,2)
                 model.set_params(par((1:length(fn))+(j-1)*length(fn)));
-                y_est_j = data_fitting.calc_est_single(model, x_data(:,j));
+                y_est_j = data_fitting.dose_response_est_single(model, x_data(:,j));
                 y_est(1:numel(y_est_j),j) = y_est_j;
             end
         end
 
         function [y_ret, rmse] = dose_response_est_single(model, x_data, y_data)
+            ct = dynamics.continuation(model);
+            ct.calc_profile('EGF_EGFRtt', [0, 1], [0, 1]);
+
             x_data_nn = x_data(~isnan(x_data));
             [xx, ~, xx_ind] = unique(x_data_nn);
-            ct = dynamics.continuation(model);
-            [vars_cont, LP_inxs, ret_status] = ct.calc_profile('EGF_EGFRtt', [0, 1], [0, 1]);
-            x = vars_cont(1,:);
-            y = ct.readout(vars_cont);
-            if ~isempty(LP_inxs)
-                ind_1 = min(LP_inxs);
-                if length(LP_inxs) == 2
-                    ind_2 = max(LP_inxs);
-                else
-                    ind_2 = find(isnan(x),1,'last')+1;
-                end
-                ind_21 = find(x(ind_2:end)>x(ind_1),1,'first') + ind_2 -1;
-                y_21 = interp1(x(ind_2:end), y(ind_2:end), x(ind_1)+1e-10, 'PCHIP', nan);
-                yy = interp1([x(1:ind_1),x(ind_1)+1e-10,x(ind_21:end)], [y(1:ind_1),y_21,y(ind_21:end)], xx, 'PCHIP', nan);
+
+            %x = ct.prof_bif.vars_cont(1,:);
+            %y = ct.readout(ct.prof_bif.vars_cont);
+            branches_stable = ct.prof_bif.get_stable_branches(1);
+            x = branches_stable(1,:);
+            y = ct.readout(branches_stable);
+            ind_nan = find(isnan(x),1,'first');
+            if ~isempty(ind_nan)
+                ind_21 = find(x((ind_nan+1):end)>x(ind_nan-1),1,'first') + ind_nan;
+                y_21 = interp1(x((ind_nan+1):end), y((ind_nan+1):end), x(ind_nan-1)+1e-10, 'PCHIP', nan);
+                yy = interp1([x(1:(ind_nan-1)),x(ind_nan-1)+1e-10,x(ind_21:end)], [y(1:(ind_nan-1)),y_21,y(ind_21:end)], xx, 'PCHIP', nan);
             else
                 yy = interp1(x, y, xx, 'PCHIP', nan);
             end
@@ -255,8 +259,8 @@ classdef data_fitting < handle
             y_ret(~isnan(x_data)) = yy(xx_ind);
             rmse = nan;
             if nargin>2
-                y_data_nn = y_data(~isnan(x_data));
-                rmse = sqrt(sum((y_data_nn -yy(xx_ind)).^2)/numel(~isnan(x_data)));
+                y_data_nn = y_data(~isnan(y_data));
+                rmse = sqrt(sum((y_data_nn -yy(xx_ind)).^2)/numel(~isnan(y_data)));
             end
         end
 

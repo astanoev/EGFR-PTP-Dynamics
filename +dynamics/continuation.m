@@ -1,8 +1,9 @@
-classdef continuation
+classdef continuation < handle
     %CONTINUATION class for execuing numerical continuation procedure
     % This class is used with an input model, where the continuation derivatives are defined, 
     % in terms of the bifurcation parameter and variables of the system
     % It works with arbitrary number of variables
+    % It assumes the system contains only steady states, with saddle-node transitions between them
 
     % For the EGFR-PTPRG model, the output is defined via readout_wts, as a linear combination of the variables (EGFRp+EGF_EGFRp)
     % The input is passed through the EGF_EGFRt parameter
@@ -17,7 +18,7 @@ classdef continuation
     end
 
     properties (Transient)
-        out
+        prof_bif = [];
     end
     
     methods
@@ -53,7 +54,7 @@ classdef continuation
                 bif_par = 'g1'; % or 'EGF_EGFRtt';
                 bif_max_val = 3*obj.model.par.(bif_par); 
                 % bif_max_val = 1;
-                obj.out = obj.calc_profile(bif_par, [0, bif_max_val], [0, 1], true);
+                obj.prof_bif = obj.calc_profile(bif_par, [0, bif_max_val], [0, 1], true);
             end
         end
 
@@ -106,14 +107,14 @@ classdef continuation
             sss(abs(sss(:,1)-x_minmax(2))<1e-5,1) = x_minmax(2);
         end
         
-        function [vars_cont, LP_inxs, ret_status] = calc_profile(obj, bif_par, x_minmax, y_minmax, animate)
+        function calc_profile(obj, bif_par, x_minmax, y_minmax, animate)
             if nargin < 5; animate = false; end
-            vars_cont = {};
-            LP_inxs = {};
-            ret_status = 0;
+            obj.prof_bif = dynamics.profile(obj); % return object
+
             sss_master = zeros(0, numel(obj.model.labels)+1);
             k_steps = 3;
-            while k_steps < 10
+            k_steps_max = 10;
+            while k_steps < k_steps_max
                 % detect steady states for a given k_steps value 
                 % (k_steps value per variable - k_steps x k_steps x k_steps variable sets to use as initial conditions for a newton step, 
                 % to find a steady state solution)
@@ -179,29 +180,30 @@ classdef continuation
                         vars_cont_single = fliplr(vars_cont_single);
                         LP_inxs_single = fliplr(size(vars_cont_single,2)-LP_inxs_single+1);
                     end
-                    vars_cont{1, end+1} = vars_cont_single; %#ok<AGROW>
-                    LP_inxs{1, end+1} = LP_inxs_single; %#ok<AGROW>
-                    ret_status = ret_status | ret_status_single;
+                    obj.prof_bif.append(vars_cont_single, LP_inxs_single, ret_status_single);
                 end
                 sss_master = [sss_master; sss(~problematic, :)]; %#ok<AGROW>
-                if ((mod(length(find(abs(sss_master(:, 1) -x_minmax(1))<1e-5)), 2) ~= 1) || (mod(length(find(abs(sss_master(:, 1) -x_minmax(2))<1e-5)), 2) ~= 1))
-                    % if there are undetected steady states, decrease the step size
-                    k_steps = k_steps+1;
-                else
-                    % sort and link lists
-                    try
-                        [vars_cont, LP_inxs] = obj.sort_link_profiles(vars_cont, LP_inxs);
-                    catch
-                        disp('problem linking');
-                        %model_problem = obj.model;
-                        %save('data\temp\problem_model.mat','model_problem');
-                    end
-                    return;
+                k_steps = k_steps+1; 
+                % if there are correct number of steady states - break, otherwise decrease the step size
+                if ((mod(length(find(abs(sss_master(:, 1) -x_minmax(1))<1e-5)), 2) == 1) && (mod(length(find(abs(sss_master(:, 1) -x_minmax(2))<1e-5)), 2) == 1))
+                    break;
                 end
             end
-            disp('warning: not all border steady-states have been identified');
-            %model_problem = obj.model;
-            %save('data\temp\problem_model.mat','model_problem');
+            if k_steps >= k_steps_max
+                % if there are undetected steady states
+                disp('warning: not all border steady-states have been identified');
+                %model_problem = obj.model;
+                %save('data\temp\problem_model.mat','model_problem');
+            end
+            % sort and link lists
+            try
+                obj.prof_bif.sort_link_profiles();
+                obj.prof_bif.calc_stability(bif_par);
+            catch
+                disp('problem linking');
+                %model_problem = obj.model;
+                %save('data\temp\problem_model.mat','model_problem');
+            end
         end
 
         function [vars_cont, LP_inxs, ret_status, ax] = continuation_single(obj, bif_par, x0, xfinals, x0_minmax, t0, animate)
@@ -539,112 +541,6 @@ classdef continuation
                 ret = sum(abs(A).^p, dim).^(1/p);
             end
         end
-        
-        function [vars_cont_ret, LP_inxs_ret] = sort_link_profiles(obj, vars_cont, LP_inxs, order_mode)
-            if nargin < 4
-                order_mode = obj.order_mode;
-            end
-            end_points = nan(2*size(vars_cont, 2), 2);
-            graph = zeros(size(end_points, 1), size(end_points, 1));
-            % get data for end-points, and link them into a graph
-            for i = 1:size(vars_cont, 2)
-                end_points(2*i-1, :) = [vars_cont{i}(1, 1), obj.readout(vars_cont{i}(:, 1))];
-                end_points(2*i, :) = [vars_cont{i}(1, end), obj.readout(vars_cont{i}(:, end))];
-                graph(2*i-1, 2*i) = 1;
-                graph(2*i, 2*i-1) = -1;
-            end
-            s_min = min(end_points(:, 1));
-            s_max = max(end_points(:, 1));
-            s_min_inxs = find(abs(end_points(:, 1) -s_min)<1e-5);
-            s_max_inxs = find(abs(end_points(:, 1) -s_max)<1e-5);
-            [~, inxs_1_order] = sort(end_points(s_min_inxs, 2), order_mode);
-            %[~, inxs_2_order] = sort(end_points(s_min_inxs, 2), order_mode);
-            
-            for i_o = 1:numel(inxs_1_order)
-                % denote starting and ending nodes in the graph
-                ind_start = s_min_inxs(inxs_1_order(i_o));
-                %ind_end = s_max_inxs(ind2);
-                
-                q = {[ind_start]}; %#ok<NBRAK>
-                solutions = [];
-                
-                while ~isempty(q)
-                    curr_node_list = q{1};
-                    q = q(1, 2:end);
-                    if isempty(curr_node_list)
-                        break;
-                    end
-                    if (length(curr_node_list) == size(graph, 1))
-                        % check if viable - paths do not cross
-                        no_sol = false;
-                        pos_pairs = end_points([curr_node_list(1:2:end),curr_node_list(end)],1);
-                        virt_pairs = reshape([-inf,end_points(curr_node_list,2)',inf],2,[])';
-                        for i = 2:size(virt_pairs,1)
-                            for j = 1:(i-1)
-                                if pos_pairs(i)~=pos_pairs(j); continue; end
-                                if mod(sum(virt_pairs(i,:)'>virt_pairs(j,:),'all'),2)==1
-                                    % if the paths are crossing (virt_pairs positions are intercrossing) - not viable
-                                    no_sol = true;
-                                    break;
-                                end
-                            end
-                            if no_sol; break; end
-                        end
-                        if ~no_sol
-                            solutions = [solutions; curr_node_list]; %#ok<AGROW>
-                        end
-                        continue;
-                    end
-                    next_id = setdiff(find(graph(curr_node_list(end), :)), curr_node_list);
-                    if isempty(next_id)
-                        if ismember(curr_node_list(end), s_min_inxs)
-                            next_ids = setdiff(s_min_inxs(sum(abs(graph(s_min_inxs, :)),2)<2), curr_node_list);
-                        else
-                            next_ids = setdiff(s_max_inxs(sum(abs(graph(s_max_inxs, :)),2)<2), curr_node_list);
-                        end
-                        if numel(next_ids)>1
-                            [~,ind_sort] = sort(pdist2(end_points(curr_node_list(end),:),end_points(next_ids,:)));
-                            next_ids = next_ids(ind_sort);
-                        end
-                        for i = 1:length(next_ids)
-                            next_node_list = [curr_node_list, next_ids(i)];
-                            q{1, end+1} = next_node_list; %#ok<AGROW>
-                        end
-                    else
-                        next_node_list = [curr_node_list, next_id];
-                        q{1, end+1} = next_node_list; %#ok<AGROW>
-                    end
-                end
-                if ~isempty(solutions)
-                    break;
-                end
-            end
-            vars_cont_ret = [];
-            LP_inxs_ret = [];
-            if isempty(solutions)
-                disp('problem linking');
-                return;
-            end
-            order = ceil(solutions(1, 1:2:end)/2); % ceil(indices/2) gives the vars_cont index
-            flip = mod(solutions(1, 1:2:end),2)==0; % odd positions should have odd indices, otherwise flip direction within vars_cont
-            for i = 1:length(flip)
-                if flip(i)
-                    vars_cont{order(i)} = fliplr(vars_cont{order(i)});
-                    LP_inxs{order(i)} = size(vars_cont{order(i)}, 2) - LP_inxs{order(i)} + 1;
-                end
-            end
-            vars_cont = vars_cont(order);
-            LP_inxs = LP_inxs(order);
-            for i = 1:length(vars_cont)
-                if isempty(vars_cont_ret)
-                    LP_inxs_ret = LP_inxs{i};
-                    vars_cont_ret = vars_cont{i};
-                else
-                    LP_inxs_ret = [LP_inxs_ret, size(vars_cont_ret, 2) + 1 + LP_inxs{i}]; %#ok<AGROW>
-                    vars_cont_ret = [vars_cont_ret, nan(size(vars_cont_ret,1),1), vars_cont{i}]; %#ok<AGROW>
-                end
-            end
-        end
 
         function [x3] = binary_search(obj, n, x1, x2, t1, t2, bif_par, x0_minmax)
             ro = t2(1)/(t2(1)-t1(1)); % weigh closer to the point whose fp is closer to zero
@@ -765,7 +661,7 @@ classdef continuation
         function ret = readout(obj, x)
             % calculate readout - typically sum of some of the variables
             ret = sum(obj.readout_wts'*x(2:end,:),1);
-        end    
+        end
     end
 
     methods (Static)

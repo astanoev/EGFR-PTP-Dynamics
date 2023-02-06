@@ -6,7 +6,7 @@ classdef egfr_ptprg_model < handle
             'e1',4.22e-4,'e2',0.0196,'e3',0.0145,'e4',0.3505,...
             'a1',0.3182,'a2',0.4339,'a3',0.1487,'a4',9.89e-4,...
             'b1',1.8535,'k21',0.087,'EGF_EGFRtt',0);
-        par_kin = struct('EGFRt',0.8,'k1',0.01,'k4',2.25,'k5',1.0);
+        par_kin = struct('EGFRt',0.8,'k1',0.01);
         labels = {};
         init_conds = [];
     end
@@ -54,8 +54,8 @@ classdef egfr_ptprg_model < handle
         function fp = fp_continuation(obj, state, bif_par)
             pars = obj.par;
             if nargin < 3
-                bif_par = 'EGF_EGFRtt';
-                EGF_EGFRtt = state(1,:);
+                bif_par = '';
+                EGF_EGFRtt = obj.par.EGF_EGFRtt;
             elseif strcmp(bif_par,'EGF_EGFRtt')
                 EGF_EGFRtt = state(1,:);
             else
@@ -80,7 +80,9 @@ classdef egfr_ptprg_model < handle
             fp(2,:) = dPTPRGit -pars.k21*dPTPRGat -pars.b1.*(dEGFRpt +dEGF_EGFRpt).*PTPRGat -pars.b1*(EGFRpt +EGF_EGFRpt).*dPTPRGat;
             fp(3,:) = dEGF_EGFRnpt*(pars.e3*EGFRnpt +pars.e4*EGF_EGFRnpt +pars.a3*EGFRpt +pars.a4*EGF_EGFRpt) +EGF_EGFRnpt*(pars.e3*dEGFRnpt +pars.e4*dEGF_EGFRnpt +pars.a3*dEGFRpt +pars.a4*dEGF_EGFRpt) -pars.g3*(dPTPRGat*EGF_EGFRpt +PTPRGat*dEGF_EGFRpt) -pars.g4*dEGF_EGFRpt;
 
-            if strcmp(bif_par,'g1')
+            if strcmp(bif_par,'') % jacobian
+                fp(:,1) = [];
+            elseif strcmp(bif_par,'g1')
                 fp(:,1) = [-PTPRGat.*EGFRpt; 0; 0];
             elseif ~strcmp(bif_par,'EGF_EGFRtt')
                 % g1,g2,g3,g4,e1,e2,e3,e4,a1,a2,a3,a4,b1,k21
@@ -92,15 +94,17 @@ classdef egfr_ptprg_model < handle
             end
         end
 
-        function [J, stable] = jacobian(obj, state)
-            fp = obj.fp_continuation(state);
+        function [J, stable, eigvals] = jacobian(obj, state, bif_par)
+            fp = obj.fp_continuation(state, bif_par);
             J = fp(:,2:end);
             if any(isinf(J(:)))
                 stable = 0;
             elseif issparse(J)
+                eigvals = eig(J);
                 stable = all(real(eigs(J))<=0);
             else
-                stable = all(real(eig(J))<=0);
+                eigvals = eig(J);
+                stable = all(real(eigvals)<=0);
             end
         end
 
