@@ -242,16 +242,33 @@ classdef data_fitting < handle
             x_data_nn = x_data(~isnan(x_data));
             [xx, ~, xx_ind] = unique(x_data_nn);
 
-            %x = ct.prof_bif.vars_cont(1,:);
-            %y = ct.readout(ct.prof_bif.vars_cont);
             branches_stable = ct.prof_bif.get_stable_branches(1);
             x = branches_stable(1,:);
             y = ct.readout(branches_stable);
-            ind_nan = find(isnan(x),1,'first');
+            ind_nan = find(isnan(x));
             if ~isempty(ind_nan)
-                ind_21 = find(x((ind_nan+1):end)>x(ind_nan-1),1,'first') + ind_nan;
-                y_21 = interp1(x((ind_nan+1):end), y((ind_nan+1):end), x(ind_nan-1)+1e-10, 'PCHIP', nan);
-                yy = interp1([x(1:(ind_nan-1)),x(ind_nan-1)+1e-10,x(ind_21:end)], [y(1:(ind_nan-1)),y_21,y(ind_21:end)], xx, 'PCHIP', nan);
+                ind_nan = [ind_nan, numel(x)+1];
+                i_n = 1;
+                ind_21 = 1;
+                x_n = [];
+                y_n = [];
+                while true
+                    % add part of branch, continuing from the end of previously added branch
+                    x_n = [x_n, x(ind_21:(ind_nan(i_n)-1))];
+                    y_n = [y_n, y(ind_21:(ind_nan(i_n)-1))];
+                    if i_n == numel(ind_nan); break; end
+                    % find next x-value along the continuation profile (if the sorting is correct there should be no issues even if there are multiple of them)
+                    ind_21 = find(x((ind_nan(i_n)+1):end)>x(ind_nan(i_n)-1),1,'first') + ind_nan(i_n);
+                    % find index of stable branch of that point (in case it skips a branch)
+                    ind_21_branch = find(ind_21<ind_nan,1,'first');
+                    y_21 = interp1(x((ind_nan(ind_21_branch-1)+1):(ind_nan(ind_21_branch)-1)), y((ind_nan(ind_21_branch-1)+1):(ind_nan(ind_21_branch)-1)), x(ind_nan(i_n)-1)+1e-10, 'PCHIP', nan);
+                    if ~isnan(y_21) % if no numerical error (due to all-zero values)
+                        x_n = [x_n, x(ind_nan(i_n)-1)+1e-10];
+                        y_n = [y_n, y_21]; % add switching point
+                    end
+                    i_n = ind_21_branch;
+                end
+                yy = interp1(x_n, y_n, xx, 'PCHIP', nan);
             else
                 yy = interp1(x, y, xx, 'PCHIP', nan);
             end

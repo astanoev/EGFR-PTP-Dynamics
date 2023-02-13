@@ -46,9 +46,10 @@ classdef profile < handle
                 if any(isnan(state)); continue; end
                 [~, stable, ~] = obj.parent_cont.model.jacobian(state, bif_par);
                 if ~stable; continue; end
-                % let stable branches take the LPts
                 obj.state_stable(i) = stable;
             end
+            % let stable branches take the LPts (if there is a stable branch right next to LP)
+            obj.state_stable(obj.LP_inxs) = any(obj.state_stable([obj.LP_inxs'-1, obj.LP_inxs', obj.LP_inxs'+1])',1);
             obj.state_stable(isnan(obj.vars_cont(1,:))) = nan;
             %eigvals(:,isnan(obj.vars_cont(1,:))) = nan;
         end
