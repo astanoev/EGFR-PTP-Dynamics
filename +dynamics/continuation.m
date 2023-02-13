@@ -14,7 +14,7 @@ classdef continuation < handle
         readout_wts;
         tol_n = 1.0E-09;
         marker = '.';
-        order_mode = 'asc'; % or 'desc'
+        order_mode = 'ascend'; % or 'descend'
     end
 
     properties (Transient)
@@ -199,7 +199,7 @@ classdef continuation < handle
             try
                 obj.prof_bif.sort_link_profiles();
                 obj.prof_bif.calc_stability(bif_par);
-            catch
+            catch ex
                 disp('problem linking');
                 %model_problem = obj.model;
                 %save('data\temp\problem_model.mat','model_problem');

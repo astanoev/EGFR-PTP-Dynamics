@@ -49,7 +49,7 @@ classdef data_fitting < handle
         end
 
         function set_up_data(obj)
-            if exist('readmatrix','file')>0; fn_read = @readmatrix; else; fn_read = @dlmread; end %#ok<DLMRD> % for older versions
+            if exist('readmatrix','file')>0; fn_read = @readmatrix; else; fn_read = @importdata; end %#ok<DLMRD> % for older versions
             folder_data = 'data'; % folder where data is stored
             % data used for fitting, compiled from all of the conditions
             obj.xx_master = nan(0,numel(obj.conditions));

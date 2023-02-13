@@ -118,9 +118,9 @@ function xmax = plot_bif(par_fit, model, ax2, ax3)
     model.set_params(par_fit);
     model.par.EGF_EGFRtt = 0;
     ct = dynamics.continuation(model);
-    prof_bif = ct.calc_profile('g1', [0, 10], [0, 1]);
-    g1 = prof_bif.vars_cont(1,:);
-    Epp = ct.readout(prof_bif.vars_cont);
+    ct.calc_profile('g1', [0, 10], [0, 1]);
+    g1 = ct.prof_bif.vars_cont(1,:);
+    Epp = ct.readout(ct.prof_bif.vars_cont);
     p1 = plot(ax3, g1, Epp, '-', 'linewidth', 2);
     ind = find(g1<=model.par.g1,1,'last');
     g1_fr = (model.par.g1-g1(ind))/(g1(ind+1)-g1(ind));
@@ -159,9 +159,9 @@ function plot_3d_bif(par_fit, model, ax, g1_max)
     for i=1:numel(EEts)
         EEt = EEts(i);
         model.par.EGF_EGFRtt = EEt;
-        prof_bif = ct.calc_profile('g1', [0, g1_max], [0, 1]);
-        g1 = prof_bif.vars_cont(1,:);
-        Epp = ct.readout(prof_bif.vars_cont);
+        ct.calc_profile('g1', [0, g1_max], [0, 1]);
+        g1 = ct.prof_bif.vars_cont(1,:);
+        Epp = ct.readout(ct.prof_bif.vars_cont);
         if i==1
             xmax = max([model.par.g1, max(g1(Epp>0.03))*2]);
             n_samples = 1000; %round(g1_max/xmax*pts_visible); % set n_samples to stretch to g1_max with frequency so as to match the number of visible pts within xmax
@@ -200,25 +200,21 @@ function y_est = dose_response_est(par, x_data, varargin)
     model.set_params(par);
     [xx, ~, xx_ind] = unique(x_data);
     ct = dynamics.continuation(model);
-    prof_bif = ct.calc_profile('EGF_EGFRtt', [0, 1], [0, 1]);
-    if ret_status ~= 0
-        yy = dynamics.dose_response(model,0).dose_response_input_cont(xx);
-    else
-        x = prof_bif.vars_cont(1,:);
-        y = ct.readout(prof_bif.vars_cont);
-        if ~isempty(prof_bif.LP_inxs)
-            ind_1 = min(prof_bif.LP_inxs);
-            if length(prof_bif.LP_inxs) == 2
-                ind_2 = max(prof_bif.LP_inxs);
-            else
-                ind_2 = find(isnan(x),1,'last')+1;
-            end
-            ind_21 = find(x(ind_2:end)>x(ind_1),1,'first') + ind_2 -1;
-            y_21 = interp1(x(ind_2:end), y(ind_2:end), x(ind_1)+1e-10, 'PCHIP', nan);
-            yy = interp1([x(1:ind_1),x(ind_1)+1e-10,x(ind_21:end)], [y(1:ind_1),y_21,y(ind_21:end)], xx, 'PCHIP', nan);
+    ct.calc_profile('EGF_EGFRtt', [0, 1], [0, 1]);
+    x = ct.prof_bif.vars_cont(1,:);
+    y = ct.readout(ct.prof_bif.vars_cont);
+    if ~isempty(ct.prof_bif.LP_inxs)
+        ind_1 = min(ct.prof_bif.LP_inxs);
+        if length(ct.prof_bif.LP_inxs) == 2
+            ind_2 = max(ct.prof_bif.LP_inxs);
         else
-            yy = interp1(x, y, xx, 'PCHIP', nan);
+            ind_2 = find(isnan(x),1,'last')+1;
         end
+        ind_21 = find(x(ind_2:end)>x(ind_1),1,'first') + ind_2 -1;
+        y_21 = interp1(x(ind_2:end), y(ind_2:end), x(ind_1)+1e-10, 'PCHIP', nan);
+        yy = interp1([x(1:ind_1),x(ind_1)+1e-10,x(ind_21:end)], [y(1:ind_1),y_21,y(ind_21:end)], xx, 'PCHIP', nan);
+    else
+        yy = interp1(x, y, xx, 'PCHIP', nan);
     end
     y_est = yy(xx_ind);
 end

@@ -109,7 +109,7 @@ classdef profile < handle
                         for i = 2:size(virt_pairs,1)
                             for j = 1:(i-1)
                                 if pos_pairs(i)~=pos_pairs(j); continue; end
-                                if mod(sum(virt_pairs(i,:)'>virt_pairs(j,:),'all'),2)==1
+                                if mod(sum(sum(virt_pairs(i,:)'>virt_pairs(j,:))),2)==1
                                     % if the paths are crossing (virt_pairs positions are intercrossing) - not viable
                                     no_sol = true;
                                     break;
