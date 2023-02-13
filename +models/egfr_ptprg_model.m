@@ -38,17 +38,8 @@ classdef egfr_ptprg_model < handle
                 EGF_EGFRtt = obj.par.EGF_EGFRtt;
                 pars.(bif_par) = state(1,:);
             end
-            EGFRpt = state(2,:);
-            EGFRnpt = 1 -EGFRpt -EGF_EGFRtt;
-            PTPRGat = state(3,:);
-            PTPRGit = 1 -PTPRGat;
-            EGF_EGFRpt = state(4,:);
-            EGF_EGFRnpt = EGF_EGFRtt -EGF_EGFRpt;
 
-            f = zeros(numel(state)-1,1);
-            f(1,:) = EGFRnpt*(pars.e1*EGFRnpt +pars.e2*EGF_EGFRnpt +pars.a1*EGFRpt +pars.a2*EGF_EGFRpt) -pars.g1*PTPRGat*EGFRpt -pars.g2*EGFRpt; %EGFRpt
-            f(2,:) = PTPRGit -pars.k21*PTPRGat -pars.b1*(EGFRpt +EGF_EGFRpt)*PTPRGat; %PTPRGat
-            f(3,:) = EGF_EGFRnpt*(pars.e3*EGFRnpt +pars.e4*EGF_EGFRnpt +pars.a3*EGFRpt +pars.a4*EGF_EGFRpt) -pars.g3*PTPRGat*EGF_EGFRpt -pars.g4*EGF_EGFRpt; %EGF_EGFRpt
+            f = obj.eqs_model(state(2:end,:), pars, EGF_EGFRtt);
         end
 
         function fp = fp_continuation(obj, state, bif_par)
@@ -68,6 +59,7 @@ classdef egfr_ptprg_model < handle
             PTPRGit = 1 -PTPRGat;
             EGF_EGFRpt = state(4,:);
             EGF_EGFRnpt = EGF_EGFRtt -EGF_EGFRpt;
+            % for all terms define derivatives over the input parameter (for now) and all of the variables
             dEGF_EGFRtt = [1, 0, 0, 0];
             dEGFRpt = [0, 1, 0, 0];
             dEGFRnpt = [-1, -1, 0, 0];
@@ -75,17 +67,16 @@ classdef egfr_ptprg_model < handle
             dPTPRGit = [0, 0, -1, 0];
             dEGF_EGFRpt = [0, 0, 0, 1];
             dEGF_EGFRnpt = [1, 0, 0, -1];
+            % use derivatives of model equations (using product rule) to perform the calculations
             fp = zeros(numel(state)-1,numel(state));
             fp(1,:) = dEGFRnpt.*(pars.e1*EGFRnpt +pars.e2*EGF_EGFRnpt +pars.a1*EGFRpt +pars.a2*EGF_EGFRpt) +EGFRnpt.*(pars.e1*dEGFRnpt +pars.e2*dEGF_EGFRnpt +pars.a1*dEGFRpt +pars.a2*dEGF_EGFRpt) -pars.g1*(dPTPRGat.*EGFRpt +PTPRGat*dEGFRpt) -pars.g2*dEGFRpt;
             fp(2,:) = dPTPRGit -pars.k21*dPTPRGat -pars.b1.*(dEGFRpt +dEGF_EGFRpt).*PTPRGat -pars.b1*(EGFRpt +EGF_EGFRpt).*dPTPRGat;
             fp(3,:) = dEGF_EGFRnpt*(pars.e3*EGFRnpt +pars.e4*EGF_EGFRnpt +pars.a3*EGFRpt +pars.a4*EGF_EGFRpt) +EGF_EGFRnpt*(pars.e3*dEGFRnpt +pars.e4*dEGF_EGFRnpt +pars.a3*dEGFRpt +pars.a4*dEGF_EGFRpt) -pars.g3*(dPTPRGat*EGF_EGFRpt +PTPRGat*dEGF_EGFRpt) -pars.g4*dEGF_EGFRpt;
 
-            if strcmp(bif_par,'') % jacobian
+            if strcmp(bif_par,'') % for jacobian matrix calculation exclude the first column
                 fp(:,1) = [];
-            elseif strcmp(bif_par,'g1')
-                fp(:,1) = [-PTPRGat.*EGFRpt; 0; 0];
-            elseif ~strcmp(bif_par,'EGF_EGFRtt')
-                % g1,g2,g3,g4,e1,e2,e3,e4,a1,a2,a3,a4,b1,k21
+            elseif ~strcmp(bif_par,'EGF_EGFRtt') % update first column with derivates over a different parameter
+                % order: g1, g2, g3, g4, e1, e2, e3, e4, a1, a2, a3, a4, b1, k21
                 ind_par = strcmp(fieldnames(obj.par),bif_par);
                 fp_par = [-PTPRGat.*EGFRpt, -EGFRpt, 0, 0, EGFRnpt*EGFRnpt, EGFRnpt*EGF_EGFRnpt, 0, 0, EGFRnpt*EGFRpt, EGFRnpt*EGF_EGFRpt, 0, 0, 0, 0; ...
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -PTPRGat*(EGFRpt+EGF_EGFRpt), -PTPRGat; ...
@@ -115,8 +106,13 @@ classdef egfr_ptprg_model < handle
                 EGF_EGFRtt = obj.par.EGF_EGFRtt;
             end
             if isempty(EGF_EGFRtt); EGF_EGFRtt = obj.par.EGF_EGFRtt; end
-            
-            dstate_dt = zeros(size(state));
+            % use model equations scaled by kinetic parameters for an ODE execution
+            dstate_dt = [obj.par_kin.EGFRt; obj.par_kin.k1; obj.par_kin.EGFRt].*obj.eqs_model(state, obj.par, EGF_EGFRtt);
+        end
+
+        function eqs = eqs_model(obj, state, pars, EGF_EGFRtt)
+            % main model equations (without kinetic terms)
+            eqs = zeros(size(state));
             EGFRpt = state(1);                        
             PTPRGat = state(2);
             EGF_EGFRpt = state(3);
@@ -124,9 +120,9 @@ classdef egfr_ptprg_model < handle
             EGFRnpt = 1 -EGFRpt -EGF_EGFRtt;
             EGF_EGFRnpt = EGF_EGFRtt -EGF_EGFRpt;
             
-            dstate_dt(1) = obj.par_kin.EGFRt*(EGFRnpt*(obj.par.e1*EGFRnpt +obj.par.e2*EGF_EGFRnpt +obj.par.a1*EGFRpt +obj.par.a2*EGF_EGFRpt) -obj.par.g1*PTPRGat*EGFRpt -obj.par.g2*EGFRpt); %EGFRpt
-            dstate_dt(2) = obj.par_kin.k1*(PTPRGit -obj.par.k21*PTPRGat -obj.par.b1*(EGFRpt +EGF_EGFRpt)*PTPRGat); %PTPRGat
-            dstate_dt(3) = obj.par_kin.EGFRt*(EGF_EGFRnpt*(obj.par.e3*EGFRnpt +obj.par.e4*EGF_EGFRnpt +obj.par.a3*EGFRpt +obj.par.a4*EGF_EGFRpt) -obj.par.g3*PTPRGat*EGF_EGFRpt -obj.par.g4*EGF_EGFRpt); %EGF_EGFRpt
+            eqs(1) = EGFRnpt*(pars.e1*EGFRnpt +pars.e2*EGF_EGFRnpt +pars.a1*EGFRpt +pars.a2*EGF_EGFRpt) -pars.g1*PTPRGat*EGFRpt -pars.g2*EGFRpt; %EGFRpt
+            eqs(2) = PTPRGit -pars.k21*PTPRGat -pars.b1*(EGFRpt +EGF_EGFRpt)*PTPRGat; %PTPRGat
+            eqs(3) = EGF_EGFRnpt*(pars.e3*EGFRnpt +pars.e4*EGF_EGFRnpt +pars.a3*EGFRpt +pars.a4*EGF_EGFRpt) -pars.g3*PTPRGat*EGF_EGFRpt -pars.g4*EGF_EGFRpt; %EGF_EGFRpt
         end
     end
 end
