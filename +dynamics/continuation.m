@@ -265,6 +265,8 @@ classdef continuation < handle
                     if strcmp(bif_par,'EGF_EGFRtt')
                         axis(ax,'equal');
                     end
+                    xlabel(ax, strrep(bif_par,'_','\_'));
+                    ylabel(ax, 'Response');
                     xlim(ax, x0_minmax(:, 1)');
                     ylim(ax, x0_minmax(:, 2)');
                 else

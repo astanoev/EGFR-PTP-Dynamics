@@ -4,6 +4,10 @@
 
 MATLAB library developed to produce the results for the paper 
 
+[Maitreyi S. Joshi, Angel Stanoev, Jan Huebinger, Birga Soetje, Veronika Zorina, Lisaweta Roßmannek, Kirsten Michel, Sven AH Müller, and Philippe IH Bastiaens. "The EGFR phosphatase RPTPγ is a redox-regulated suppressor of promigratory signaling" The EMBO Journal (2023) e111806](https://doi.org/10.15252/embj.2022111806)
+
+and for the previous version on
+
 [Maitreyi S. Joshi, Angel Stanoev, Birga Soetje, Jan Huebinger, Veronika Zorina, Lisaweta Rossmannek, Kirsten Michel, and Philippe IH Bastiaens. "RPTPγ is a redox-regulated suppressor of promigratory EGFR signaling." BioRxiv (2022) [doi: 10.1101/2022.06.01.494340]](https://www.biorxiv.org/content/10.1101/2022.06.01.494340v1.full.pdf).
 
 -------------------------
